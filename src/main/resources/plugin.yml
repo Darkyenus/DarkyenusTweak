@@ -1,0 +1,15 @@
+name: DarkyenusTweak
+version: '1.0'
+api-version: 1.13
+main: com.darkyen.minecraft.DarkyenusTweak
+authors: [Darkyen]
+commands:
+  chatcolor:
+    description: Change your color in the chat
+    usage: /chatcolor <color name>
+    permission: com.darkyen.minecraft.darkyenustweak.chatcolor
+    aliases: [setchatcolor]
+permissions:
+  com.darkyen.minecraft.darkyenustweak.chatcolor:
+    description: Access to /chatcolor command.
+    default: true

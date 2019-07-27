@@ -1,0 +1,50 @@
+# Add recipe for a saddle
+saddle-recipe: false
+# Add recipes for records
+record-recipe: false
+# Add recipes for horse armors
+horse-armor-recipe: false
+# Add recipe for a name tag
+name-tag-recipe: false
+
+# Blocks that are normally destroyed on break now drop themselves.
+# Relevant blocks: Glass, Glass panes, Bookshelves (only when broken without an axe)
+block-drops: false
+# Using bonemeal on dirt turns it into grass
+bonemeal-grows-grass: false
+# Fire will spread only to direct neighbor blocks (not diagonally)
+limit-fire-spread: false
+
+# Prettier chat formatting
+chat-format: false
+# Chat colors are randomly distributed on server start (only if chat-format is enabled)
+chat-format-color-shuffle: false
+# Allow players to pick their chat color (only if chat-format is enabled)
+chat-format-custom-colors: true
+
+# Creeper explosions will destroy only fragile blocks
+limit-creeper-explosions: false
+# When limiting creeper explosions, only block with blast resistance less than this number will break
+limit-creeper-explosions-under-blast-resistance: 3
+# Blocks that are not destroyed by creepers, even if their blast resistance is less than limit-creeper-explosions-under-blast-resistance
+limit-creeper-explosions-protect-blocks:
+  - dirt
+  - coarse_dirt
+  - sand
+  - red_sand
+  - podzol
+
+# Enables following sleep-related tweaks
+sleep-tweaks: false
+# Players lower than this height are exempt from sleeping
+sleeping-ignored-under-y: 50
+# Players which do not move for this long are exempt from sleeping
+# <time> = <number> <unit>
+#        | "never"
+# <unit> = "s" (seconds)
+#        | "m" (minutes)
+#        | "h" (hours)
+#        | "d" (days)
+sleeping-ignored-after-idle: 15m
+# How many eligible people have to sleep for the night to proceed?
+sleeping-percent-required: 50.0

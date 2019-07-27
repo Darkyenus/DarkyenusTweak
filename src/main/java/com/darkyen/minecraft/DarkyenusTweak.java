@@ -172,7 +172,7 @@ public final class DarkyenusTweak extends JavaPlugin {
 						return;
 					}
 
-					clickedBlock.setType(Material.GRASS);
+					clickedBlock.setType(Material.GRASS_BLOCK);
 					event.setUseInteractedBlock(Event.Result.DENY);
 					event.setUseItemInHand(Event.Result.DENY);
 
@@ -289,7 +289,7 @@ public final class DarkyenusTweak extends JavaPlugin {
 					}
 
 					event.blockList().removeIf(b ->
-							b.getType().getBlastResistance() < underBlastResistance
+							b.getType().getBlastResistance() >= underBlastResistance
 									|| protectedBlocks.contains(b.getType().getKey()));
 				}
 

@@ -6,11 +6,13 @@ import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
+import org.bukkit.GameRule;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Server;
+import org.bukkit.Statistic;
 import org.bukkit.Tag;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -30,7 +32,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
-import org.bukkit.event.player.PlayerGameModeChangeEvent;
+import org.bukkit.event.player.PlayerBedLeaveEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.EquipmentSlot;
@@ -38,6 +40,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -340,12 +343,7 @@ public final class DarkyenusTweak extends JavaPlugin {
 				}
 
 				@EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
-				public void adminsDoNotSleep(PlayerGameModeChangeEvent event) {
-					event.getPlayer().setSleepingIgnored(sleepingIgnored(event.getNewGameMode()));
-				}
-
-				@EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
-				public void minersDoNotSleep(PlayerMoveEvent event){
+				public void idlePeopleDoNotSleep(PlayerMoveEvent event){
 					final Player player = event.getPlayer();
 					// Update idle timing
 					if (sleepingIgnoredAfterIdleMs < Long.MAX_VALUE) {
@@ -355,107 +353,102 @@ public final class DarkyenusTweak extends JavaPlugin {
 						}
 						idle.lastActivity = System.currentTimeMillis();
 					}
+				}
 
-					final Location to = event.getTo();
-					if (to == null || sleepingIgnored(player.getGameMode())) return;
+				private final Location ignoreWhenNotSleeping_loc = new Location(null, 0, 0, 0);
+				private boolean ignoreWhenNotSleeping(Player p) {
+					return isIdle(p) || sleepingIgnored(p.getGameMode()) || p.getLocation(ignoreWhenNotSleeping_loc).getY() < sleepingIgnoredUnderY;
+				}
 
-					final boolean sleepBefore = event.getFrom().getBlockY() < sleepingIgnoredUnderY;
-					final boolean sleepNow = to.getBlockY() < sleepingIgnoredUnderY;
-					if (sleepBefore != sleepNow) {
-						player.setSleepingIgnored(!sleepNow);
+				private final ArrayList<Player> doImprovedWakeup_sleeping = new ArrayList<>();
+				private void doImprovedWakeup(World world) {
+					final ArrayList<Player> sleeping = this.doImprovedWakeup_sleeping;
+					try {
+						int totalSleepy = 0;
+						int ignored = 0;
+
+						final List<Player> players = world.getPlayers();
+						for (Player p : players) {
+							if (sleepingIgnored(p.getGameMode())) continue;
+
+							totalSleepy++;
+							if (p.isSleeping()) {
+								sleeping.add(p);
+							} else if (ignoreWhenNotSleeping(p)) {
+								ignored++;
+							}
+						}
+
+						if (sleeping.size() + ignored >= totalSleepy) {
+							// Sleep will happen anyway
+							return;
+						}
+
+						final int requiredSleepers = Math.round(totalSleepy * sleepingPercentRequired);
+						final int fulfilledSleepers = sleeping.size() + ignored;
+
+						if (fulfilledSleepers < requiredSleepers) {
+							final int more = requiredSleepers - fulfilledSleepers;
+							final TextComponent component = new TextComponent(ChatColor.DARK_AQUA + "Waiting for " + more + " more " + (more == 1 ? "person" : "people") + " to sleep");
+							for (Player p : players) {
+								if (sleepingIgnored(p.getGameMode()))
+									continue;
+								p.spigot().sendMessage(ChatMessageType.ACTION_BAR, component);
+							}
+							return;
+						}
+
+						// Skip!
+						{// Message
+							final TextComponent message = new TextComponent("Night has been skipped");
+							message.setColor(ChatColor.BLUE.asBungee());
+							for (Player p : players) {
+								p.spigot().sendMessage(ChatMessageType.ACTION_BAR, message);
+							}
+						}
+						// Wakeup
+						for (Player player : sleeping) {
+							// NOTE: This does (true, true, true) wakeup, while vanilla does (false, false, true)
+							player.wakeup(true);
+							player.setStatistic(Statistic.TIME_SINCE_REST, 0);
+						}
+
+						if (Boolean.TRUE.equals(world.getGameRuleValue(GameRule.DO_DAYLIGHT_CYCLE))) {
+							world.setTime(0);
+						}
+
+						if (Boolean.TRUE.equals(world.getGameRuleValue(GameRule.DO_WEATHER_CYCLE))) {
+							world.setStorm(false);
+							world.setThundering(false);
+						}
+					} finally {
+						sleeping.clear();
 					}
 				}
 
-				private void sleepSkip(World world) {
-					final ArrayList<Player> skippedForNow = new ArrayList<>();
-
-					int totalSleepy = 0;
-					int sleeping = 0;
-					int ignored = 0;
-					int idle = 0;
-
-					final List<Player> players = world.getPlayers();
-					for (Player p : players) {
-						if (sleepingIgnored(p.getGameMode())) continue;
-						totalSleepy++;
-						if (p.isSleeping()) {
-							sleeping++;
-						} else if (p.isSleepingIgnored()) {
-							ignored++;
-						} else if (isIdle(p)) {
-							idle++;
-							skippedForNow.add(p);
-						} else {
-							skippedForNow.add(p);
-						}
-					}
-
-					final int requiredSleepers = Math.round((totalSleepy + 1) * sleepingPercentRequired);
-					final int fulfilledSleepers = sleeping + ignored + idle;
-
-					if (fulfilledSleepers < requiredSleepers) {
-						return;
-					}
-
-					// Skip!
-					final TextComponent message = new TextComponent("Night has been skipped");
-					message.setColor(ChatColor.BLUE.asBungee());
-					for (Player player : skippedForNow) {
-						player.setSleepingIgnored(true);
-						player.spigot().sendMessage(ChatMessageType.ACTION_BAR, message);
-					}
-					getServer().getScheduler().runTaskLater(DarkyenusTweak.this, () -> {
-						// Should be day now
-						for (Player player : skippedForNow) {
-							player.setSleepingIgnored(false);
-						}
-					}, 1);
-				}
+				BukkitTask extraSleepCheck = null;
 
 				@EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
-				public void bedsAreBetter(PlayerBedEnterEvent event) {
-					int totalSleepy = 1;
-					int sleeping = 1;
-					int ignored = 0;
-					int idle = 0;
-
-					final Player player = event.getPlayer();
-					final World world = player.getWorld();
-					final List<Player> players = world.getPlayers();
-					for (Player p : players) {
-						if (p == player) continue;
-						if (sleepingIgnored(p.getGameMode())) continue;
-						totalSleepy++;
-						if (p.isSleeping()) {
-							sleeping++;
-						} else if (p.isSleepingIgnored()) {
-							ignored++;
-						} else if (isIdle(p)) {
-							idle++;
-						}
+				public void notEverybodyHasToSleep(PlayerBedEnterEvent event) {
+					final BukkitTask oldSleepCheck = this.extraSleepCheck;
+					if (oldSleepCheck != null) {
+						oldSleepCheck.cancel();
 					}
-
-					if (sleeping + ignored >= totalSleepy) {
-						// Sleep will happen anyway
-						return;
-					}
-
-					final int requiredSleepers = Math.round((totalSleepy + 1) * sleepingPercentRequired);
-					final int fulfilledSleepers = sleeping + ignored + idle;
-
-					if (fulfilledSleepers < requiredSleepers) {
-						final int more = requiredSleepers - fulfilledSleepers;
-						final TextComponent component = new TextComponent(ChatColor.DARK_AQUA + "Waiting for " + more + " more "+(more == 1?"person":"people")+" to sleep");
-						for (Player p : players) {
-							if (p.isSleepingIgnored()) continue;
-							player.spigot().sendMessage(ChatMessageType.ACTION_BAR, component);
-						}
-						return;
-					}
-
-					// We need to help it a bit, but not immediately
-					getServer().getScheduler().runTaskLater(DarkyenusTweak.this, () -> sleepSkip(world), 20 * 3);
+					this.extraSleepCheck = getServer().getScheduler().runTaskLater(DarkyenusTweak.this,
+							() -> doImprovedWakeup(event.getBed().getWorld()), 120 /* MC Sleep behavior will kick in in 100 ticks, we want to be a bit later than that */);
 				}
+			}, this);
+		}
+
+		if (config.getBoolean("beds-are-reliable-respawn-points", false)) {
+			server.getPluginManager().registerEvents(new Listener() {
+
+				@EventHandler(ignoreCancelled = true, priority = EventPriority.HIGHEST)
+				public void bedsArePermanentSpawns(PlayerBedLeaveEvent event) {
+					event.setSpawnLocation(false); // It would override it
+					event.getPlayer().setBedSpawnLocation(event.getBed().getLocation(), true);
+				}
+
 			}, this);
 		}
 	}

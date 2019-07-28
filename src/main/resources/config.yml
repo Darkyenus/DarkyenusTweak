@@ -48,3 +48,6 @@ sleeping-ignored-under-y: 50
 sleeping-ignored-after-idle: 15m
 # How many eligible people have to sleep for the night to proceed?
 sleeping-percent-required: 50.0
+
+# Makes bed reliable respawn points: They will set respawn point even if the bed is missing or obstructed.
+beds-are-reliable-respawn-points: false

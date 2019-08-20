@@ -1,6 +1,6 @@
 name: DarkyenusTweak
-version: '1.1'
-api-version: 1.13
+version: '1.2'
+api-version: '1.14'
 main: com.darkyen.minecraft.DarkyenusTweak
 authors: [Darkyen]
 commands:

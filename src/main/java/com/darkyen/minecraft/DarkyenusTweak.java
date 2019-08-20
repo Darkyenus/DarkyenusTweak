@@ -1,8 +1,11 @@
 
 package com.darkyen.minecraft;
 
+import com.darkyen.minecraft.util.LocationDataType;
 import com.darkyen.minecraft.util.Materials;
+import com.darkyen.minecraft.util.Util;
 import net.md_5.bungee.api.ChatMessageType;
+import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
@@ -26,21 +29,24 @@ import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
-import org.bukkit.event.player.PlayerBedLeaveEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.RecipeChoice;
 import org.bukkit.inventory.ShapedRecipe;
+import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -55,20 +61,26 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
+import static com.darkyen.minecraft.util.Util.getWorld;
 import static com.darkyen.minecraft.util.Util.parseTimeMs;
 import static com.darkyen.minecraft.util.Util.parseUUID;
 
 /**
  *
  */
+@SuppressWarnings("unused")
 public final class DarkyenusTweak extends JavaPlugin {
 
 	private HashMap<UUID, ChatColor> customChatColors = null;
 	private File customChatColorsFile = null;
+
+	private final NamespacedKey RELIABLE_SPAWN_POINT = new NamespacedKey(this, "reliable-spawn-point");
+	private final LocationDataType LOCATION_TYPE = new LocationDataType(this);
 
 	@Override
 	public void onEnable () {
@@ -134,8 +146,9 @@ public final class DarkyenusTweak extends JavaPlugin {
 			}
 		}
 
+		final PluginManager pluginManager = server.getPluginManager();
 		if (config.getBoolean("block-drops", false)) {
-			server.getPluginManager().registerEvents(new Listener() {
+			pluginManager.registerEvents(new Listener() {
 
 				@EventHandler(ignoreCancelled = true, priority = EventPriority.HIGHEST)
 				public void onBlockBreak (BlockBreakEvent event) {
@@ -159,7 +172,7 @@ public final class DarkyenusTweak extends JavaPlugin {
 		}
 
 		if (config.getBoolean("bonemeal-grows-grass", false)) {
-			server.getPluginManager().registerEvents(new Listener() {
+			pluginManager.registerEvents(new Listener() {
 				/**  Allow bonemeal to grow grass on dirt. */
 				@EventHandler(ignoreCancelled = true, priority = EventPriority.HIGHEST)
 				public void onBonemealUse (PlayerInteractEvent event) {
@@ -193,7 +206,7 @@ public final class DarkyenusTweak extends JavaPlugin {
 		}
 
 		if (config.getBoolean("limit-fire-spread", false)) {
-			server.getPluginManager().registerEvents(new Listener() {
+			pluginManager.registerEvents(new Listener() {
 				/** Limits spread distance only to nearest blocks */
 				@EventHandler(ignoreCancelled = true, priority = EventPriority.HIGH)
 				public void onFireSpread (BlockSpreadEvent event) {
@@ -277,13 +290,13 @@ public final class DarkyenusTweak extends JavaPlugin {
 		}
 
 		if (config.getBoolean("limit-creeper-explosions", false)) {
-			final double underBlastResistance = config.getDouble("limit-creeper-explosions-under-blast-resistance", 3);
+			final double underBlastResistance = config.getDouble("limit-creeper-explosions-under-blast-resistance", 0.6);
 			final HashSet<NamespacedKey> protectedBlocks = new HashSet<>();
 			for (String s : config.getStringList("limit-creeper-explosions-protect-blocks")) {
 				protectedBlocks.add(NamespacedKey.minecraft(s));
 			}
 
-			server.getPluginManager().registerEvents(new Listener() {
+			pluginManager.registerEvents(new Listener() {
 				/** Limit creeper explosions only to more fragile blocks */
 				@EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
 				public void onCreeperExplode (EntityExplodeEvent event) {
@@ -312,7 +325,7 @@ public final class DarkyenusTweak extends JavaPlugin {
 			final long sleepingIgnoredAfterIdleMs = parseTimeMs(config.getString("sleeping-ignored-after-idle", "15m"), TimeUnit.MINUTES.toMillis(15), getLogger());
 			final float sleepingPercentRequired = (float)config.getDouble("sleeping-percent-required", 50.0) / 100f;
 
-			server.getPluginManager().registerEvents(new Listener() {
+			pluginManager.registerEvents(new Listener() {
 
 				class Idle {
 					long lastActivity;
@@ -360,8 +373,19 @@ public final class DarkyenusTweak extends JavaPlugin {
 					return isIdle(p) || sleepingIgnored(p.getGameMode()) || p.getLocation(ignoreWhenNotSleeping_loc).getY() < sleepingIgnoredUnderY;
 				}
 
+				private boolean sleepAllowed(World world) {
+					final long time = world.getTime();
+					return world.isThundering() || (time >= 12541 && time <= 23458);
+				}
+
+
 				private final ArrayList<Player> doImprovedWakeup_sleeping = new ArrayList<>();
 				private void doImprovedWakeup(World world) {
+					if (!sleepAllowed(world)) {
+						// Time has probably already skipped while we were waiting
+						return;
+					}
+
 					final ArrayList<Player> sleeping = this.doImprovedWakeup_sleeping;
 					try {
 						int totalSleepy = 0;
@@ -441,12 +465,187 @@ public final class DarkyenusTweak extends JavaPlugin {
 		}
 
 		if (config.getBoolean("beds-are-reliable-respawn-points", false)) {
-			server.getPluginManager().registerEvents(new Listener() {
+			pluginManager.registerEvents(new Listener() {
 
-				@EventHandler(ignoreCancelled = true, priority = EventPriority.HIGHEST)
-				public void bedsArePermanentSpawns(PlayerBedLeaveEvent event) {
-					event.setSpawnLocation(false); // It would override it
-					event.getPlayer().setBedSpawnLocation(event.getBed().getLocation(), true);
+				@EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
+				public void setSpawnOnValidBedEnter(PlayerBedEnterEvent event) {
+					if (event.getBedEnterResult() != PlayerBedEnterEvent.BedEnterResult.OK) {
+						return;
+					}
+					final Player player = event.getPlayer();
+					final Location bedLocation = event.getBed().getLocation();
+					player.getPersistentDataContainer().set(RELIABLE_SPAWN_POINT, LOCATION_TYPE, bedLocation);
+					// Try to keep vanilla behavior, reliable spawn kicks in only after this mechanism fails
+					player.setBedSpawnLocation(bedLocation, true);
+				}
+
+				public boolean isGoodSpawnAir(Material type) {
+					return !type.isSolid() && type != Material.WATER && type != Material.LAVA;
+				}
+
+				public boolean isGoodSpawnFloor(Material type) {
+					return type.isSolid();
+				}
+
+				public boolean isValidSpawn(World world, int x, int y, int z) {
+					return isGoodSpawnAir(world.getBlockAt(x, y, z).getType())
+							&& isGoodSpawnAir(world.getBlockAt(x, y + 1, z).getType())
+							&& isGoodSpawnFloor(world.getBlockAt(x, y - 1, z).getType());
+				}
+
+				public boolean fixSpawnLocation(World world, Location location) {
+					int blockX = location.getBlockX();
+					int blockY = location.getBlockY();
+					int blockZ = location.getBlockZ();
+
+					if (Util.searchLocation(world, blockX, blockY, blockZ, 50, (x,y,z) -> {
+						if (isValidSpawn(world, x, y, z)) {
+							location.setX(x);
+							location.setY(y);
+							location.setZ(z);
+							return true;
+						}
+						return false;
+					})) {
+						location.setX(location.getBlockX() + 0.5);
+						location.setY(location.getBlockY() + 0.5);
+						location.setZ(location.getBlockZ() + 0.5);
+						return true;
+					}
+					return false;
+				}
+
+				@EventHandler(priority = EventPriority.LOWEST)
+				public void spawnPlayersCorrectly(PlayerRespawnEvent event) {
+					if (event.isBedSpawn()) {
+						// Location is already good
+						return;
+					}
+					final Location reliableLocation = event.getPlayer().getPersistentDataContainer()
+							.get(RELIABLE_SPAWN_POINT, LOCATION_TYPE);
+					final World world = getWorld(reliableLocation);
+					if (reliableLocation == null || world == null) {
+						return;
+					}
+
+					if (fixSpawnLocation(world, reliableLocation)) {
+						event.setRespawnLocation(reliableLocation);
+					} else {
+						event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR,
+								new TextComponent("Could not find valid spawn location near your bed"));
+					}
+				}
+
+			}, this);
+		}
+
+		final boolean clocksShowTime = config.getBoolean("clocks-show-time", false);
+		final boolean clocksShowSpeed = config.getBoolean("clocks-measure-speed", false);
+		if (clocksShowTime || clocksShowSpeed) {
+
+			class PlayerSpeedInfo {
+				final Location lastLocation = new Location(null, 0, 0, 0);
+				double distance2PerTick = 0;
+
+				double speed() {
+					return Math.sqrt(distance2PerTick) * 20;
+				}
+			}
+
+			final WeakHashMap<Player, PlayerSpeedInfo> speedInfoByPlayer = new WeakHashMap<>();
+
+			if (clocksShowSpeed) {
+				final Consumer<Player> updatePlayer = (player) -> {
+					PlayerSpeedInfo info = speedInfoByPlayer.get(player);
+					if (info == null) {
+						info = new PlayerSpeedInfo();
+						speedInfoByPlayer.put(player, info);
+					}
+
+					final World oldWorld = getWorld(info.lastLocation);
+					final double oldX = info.lastLocation.getX();
+					final double oldY = info.lastLocation.getY();
+					final double oldZ = info.lastLocation.getZ();
+
+					player.getLocation(info.lastLocation);
+					final World newWorld = getWorld(info.lastLocation);
+					final double newX = info.lastLocation.getX();
+					final double newY = info.lastLocation.getY();
+					final double newZ = info.lastLocation.getZ();
+
+					if (oldWorld != newWorld) {
+						info.distance2PerTick = 0;
+						return;
+					}
+
+					info.distance2PerTick = Util.distance2(oldX, oldY, oldZ, newX, newY, newZ);
+				};
+
+				getServer().getScheduler().runTaskTimer(this,
+						() -> getServer().getOnlinePlayers().forEach(updatePlayer),
+						1, 1);
+			}
+
+			pluginManager.registerEvents(new Listener() {
+
+				@NotNull
+				private String formatTime(long worldTime) {
+					final int time = (int)Math.floorMod(worldTime + 6000, 24000);
+					final int hours = time / 1000;
+					final int minutes = (int) (((time % 1000) / 1000f) * 60f); // Gotta floor, otherwise we could get :60 minutes
+					return String.format("%d:%02d", hours, minutes);
+				}
+
+				private final TextComponent SEPARATOR = new TextComponent(" - ");
+				private final TextComponent METERS_PER_SECOND = new TextComponent(" m/s");
+				{
+					SEPARATOR.setColor(net.md_5.bungee.api.ChatColor.DARK_GRAY);
+					METERS_PER_SECOND.setColor(net.md_5.bungee.api.ChatColor.DARK_AQUA);
+					METERS_PER_SECOND.setBold(false);
+					METERS_PER_SECOND.setItalic(true);
+				}
+
+				@EventHandler(priority = EventPriority.MONITOR)
+				public void betterClocks(PlayerInteractEvent event) {
+					final Action action = event.getAction();
+					if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) {
+						// We only care about right-clicking
+						return;
+					}
+					final ItemStack item = event.getItem();
+					if (item == null || item.getType() != Material.CLOCK) {
+						// We only care about clocks
+						return;
+					}
+
+					final Player player = event.getPlayer();
+					final World world = player.getWorld();
+
+					BaseComponent component = null;
+					if (clocksShowTime) {
+						component = new TextComponent(formatTime(world.getTime()));
+						component.setColor(net.md_5.bungee.api.ChatColor.AQUA);
+						component.setBold(true);
+					}
+
+					if (clocksShowSpeed) {
+						final PlayerSpeedInfo speedInfo = speedInfoByPlayer.get(player);
+						final double speed = speedInfo == null ? 0 : speedInfo.speed();
+
+						final TextComponent msSpeed = new TextComponent(String.format("%.2f", speed));
+						msSpeed.setColor(net.md_5.bungee.api.ChatColor.GOLD);
+						msSpeed.addExtra(METERS_PER_SECOND);
+						msSpeed.setBold(true);
+
+						if (component != null) {
+							component.addExtra(SEPARATOR);
+							component.addExtra(msSpeed);
+						} else {
+							component = msSpeed;
+						}
+					}
+
+					player.spigot().sendMessage(ChatMessageType.ACTION_BAR, component);
 				}
 
 			}, this);

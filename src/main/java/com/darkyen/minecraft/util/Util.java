@@ -1,5 +1,8 @@
 package com.darkyen.minecraft.util;
 
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.util.NumberConversions;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -87,4 +90,95 @@ public final class Util {
         return new UUID(mostSigBits, leastSigBits);
     }
 
+    @Nullable
+    public static World getWorld(@Nullable Location loc) {
+        if (loc == null) {
+            return null;
+        }
+        try {
+            if (!loc.isWorldLoaded()) {
+                return null;
+            }
+        } catch (Throwable ignored) {
+            // isWorldLoaded is not available on servers < 1.14
+        }
+        try {
+            return loc.getWorld();
+        } catch (Throwable ignored) {
+            // (>= 1.14) If the world gets unloaded between check above and now, this could throw, but it is unlikely.
+            return null;
+        }
+    }
+
+    public static double distance2(double aX, double aY, double aZ, double bX, double bY, double bZ) {
+        return NumberConversions.square(aX - bX) + NumberConversions.square(aY - bY) + NumberConversions.square(aZ - bZ);
+    }
+
+    @FunctionalInterface
+    public interface SearchLocationConsumer {
+        /** @return true to stop, false to continue. */
+        boolean acceptable(int x, int y, int z);
+    }
+
+    private static boolean searchLocationPlate(int originX, int originY, int originZ, int radius, SearchLocationConsumer consumer) {
+        for (int x = originX - radius; x <= originX + radius; x++) {
+            for (int z = originZ - radius; z <= originZ + radius; z++) {
+                if (consumer.acceptable(x, originY, z)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean searchLocationRing(int originX, int originY, int originZ, int radius, SearchLocationConsumer consumer) {
+        for (int i = -radius; i < radius; i++) {
+            if (consumer.acceptable(originX + i, originY + radius, originZ)
+                    || consumer.acceptable(originX + radius, originY - i, originZ)
+                    || consumer.acceptable(originX - i, originY - radius, originZ)
+                    || consumer.acceptable(originX - radius, originY + i, originZ)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Search for a location which is acceptable in boxes around given coordinates.
+     * @return true if found, false if ran out of radius
+     */
+    public static boolean searchLocation(World world, int x, int y, int z, int radius, SearchLocationConsumer consumer) {
+        // Degenerate case
+        if (consumer.acceptable(x, y, z)) {
+            return true;
+        }
+        final int maxHeight = world.getMaxHeight();
+        for (int r = 1; r <= radius; r++) {
+            int highY = y + r;
+            if (highY <= maxHeight) {
+                if (searchLocationPlate(x, highY, z, r, consumer)) {
+                    return true;
+                }
+                highY--;
+            } else {
+                highY = maxHeight;
+            }
+
+            int lowY = y - r;
+            if (lowY >= 0) {
+                if (searchLocationPlate(x, lowY, z, r, consumer)) {
+                    return true;
+                }
+                lowY--;
+            } else {
+                lowY = 0;
+            }
+
+            for (int ringY = highY; ringY >= lowY ; ringY--) {
+                if (searchLocationRing(x, ringY, z, r, consumer)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

@@ -25,7 +25,7 @@ chat-format-custom-colors: true
 # Creeper explosions will destroy only fragile blocks
 limit-creeper-explosions: false
 # When limiting creeper explosions, only block with blast resistance less than this number will break
-limit-creeper-explosions-under-blast-resistance: 3
+limit-creeper-explosions-under-blast-resistance: 0.6
 # Blocks that are not destroyed by creepers, even if their blast resistance is less than limit-creeper-explosions-under-blast-resistance
 limit-creeper-explosions-protect-blocks:
   - dirt
@@ -51,3 +51,8 @@ sleeping-percent-required: 50.0
 
 # Makes bed reliable respawn points: They will set respawn point even if the bed is missing or obstructed.
 beds-are-reliable-respawn-points: false
+
+# Right clicking with a clock shows current time in 24-hour format
+clocks-show-time: false
+# Right clicking with a clock shows current speed of the player
+clocks-measure-speed: false
